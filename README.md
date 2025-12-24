@@ -107,12 +107,16 @@ php artisan make:migration create_products_table
 
 ```php
 Schema::create('products', function (Blueprint $table) {
-    $table->id();
-    $table->string('name');
-    $table->decimal('price', 10, 2);
-    $table->boolean('is_pinned')->default(0);
-    $table->timestamps();
-});
+            $table->id();
+            $table->string('name');
+            $table->decimal('price', 10, 2);
+            $table->text('details')->nullable();
+            $table->string('image')->nullable();
+            $table->foreignId('category_id')->constrained()->cascadeOnDelete();
+            $table->boolean('is_pinned')->default(0);
+            $table->timestamps();
+        });
+
 ```
 
 ```bash
@@ -133,6 +137,9 @@ class Product extends Model
     protected $fillable = [
         'name',
         'price',
+        'details',
+        'image',
+        'category_id',
         'is_pinned'
     ];
 }
@@ -156,66 +163,132 @@ php artisan make:controller ProductController
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\Category;
 use Illuminate\Http\Request;
 
 class ProductController extends Controller
 {
+    // Show admin product list (Pinned products first)
     public function index()
     {
-        $products = Product::orderBy('is_pinned','DESC')
-                           ->orderBy('id','ASC')
-                           ->get();
+        $products = Product::with('category')
+            ->orderBy('is_pinned', 'DESC') // Pinned products on top
+            ->orderBy('id', 'ASC')
+            ->get();
 
         return view('product.index', compact('products'));
     }
 
+    // Show add product form
     public function create()
     {
-        return view('product.create');
+        $categories = Category::all();
+        return view('product.create', compact('categories'));
     }
 
+    // Store new product
     public function store(Request $request)
     {
+        $request->validate([
+            'name'        => 'required',
+            'price'       => 'required',
+            'category_id' => 'required',
+            'image'       => 'image|mimes:jpg,png,jpeg,webp'
+        ]);
+
+        $imageName = null;
+
+        if ($request->hasFile('image')) {
+            $imageName = time().'.'.$request->image->extension();
+            $request->image->move(public_path('products'), $imageName);
+        }
+
         Product::create([
-            'name'      => $request->name,
-            'price'     => $request->price,
-            'is_pinned' => 0
+            'name'        => $request->name,
+            'price'       => $request->price,
+            'details'     => $request->details,
+            'category_id' => $request->category_id,
+            'image'       => $imageName,
+            'is_pinned'   => 0 // default not pinned
         ]);
 
         return redirect()->route('product.index');
     }
 
+    // Show edit product form
     public function edit($id)
     {
         $product = Product::findOrFail($id);
-        return view('product.edit', compact('product'));
+        $categories = Category::all();
+
+        return view('product.edit', compact('product', 'categories'));
     }
 
+    // Update product details
     public function update(Request $request, $id)
+    {
+        $product = Product::findOrFail($id);
+        $imageName = $product->image;
+
+        if ($request->hasFile('image')) {
+            $imageName = time().'.'.$request->image->extension();
+            $request->image->move(public_path('products'), $imageName);
+        }
+
+        $product->update([
+            'name'        => $request->name,
+            'price'       => $request->price,
+            'details'     => $request->details,
+            'category_id' => $request->category_id,
+            'image'       => $imageName
+        ]);
+
+        return redirect()->route('product.index');
+    }
+
+    // Delete product
+    public function delete($id)
+    {
+        Product::findOrFail($id)->delete();
+        return redirect()->back();
+    }
+
+    // Toggle pin / unpin product
+    public function pin($id)
     {
         $product = Product::findOrFail($id);
 
         $product->update([
-            'name'  => $request->name,
-            'price' => $request->price,
+            'is_pinned' => !$product->is_pinned
         ]);
 
-        return redirect()->route('product.index');
+        return redirect()->back();
     }
 
-    public function pin($id)
-    {
-        $product = Product::findOrFail($id);
-        $product->update(['is_pinned' => !$product->is_pinned]);
-        return back();
-    }
-
+    // Show frontend product listing (Pinned products first)
     public function frontendProducts()
     {
-        $products = Product::orderBy('is_pinned','DESC')->get();
+        $products = Product::with('category')
+            ->orderBy('is_pinned', 'DESC')
+            ->orderBy('id', 'ASC')
+            ->get();
+
         return view('frontend.products', compact('products'));
     }
+
+    // Show frontend product detail page
+    public function show($id)
+    {
+        $product = Product::with('category')->findOrFail($id);
+
+        $relatedProducts = Product::where('category_id', $product->category_id)
+            ->where('id', '!=', $product->id)
+            ->get();
+
+        return view('frontend.product-detail', compact('product', 'relatedProducts'));
+    }
 }
+
 ```
 
 ---
@@ -248,35 +321,99 @@ Route::get('/', [ProductController::class,'frontendProducts'])->name('frontend.p
 
 @section('content')
 
-<a href="{{ route('product.create') }}">Add Product</a>
+<div class="card-wrapper">
 
-<table border="1" cellpadding="10">
-<tr>
-    <th>ID</th>
-    <th>Name</th>
-    <th>Price</th>
-    <th>Pinned</th>
-    <th>Action</th>
-</tr>
+    {{-- Page heading and add product button --}}
+    <div class="page-header">
+        <h2>Products</h2>
 
-@foreach($products as $p)
-<tr>
-    <td>{{ $p->id }}</td>
-    <td>{{ $p->name }}</td>
-    <td>{{ $p->price }}</td>
-    <td>{{ $p->is_pinned ? 'YES' : 'NO' }}</td>
-    <td>
-        <a href="{{ route('product.pin',$p->id) }}">
-            {{ $p->is_pinned ? 'Unpin' : 'Pin' }}
+        <a href="{{ route('product.create') }}">
+            <button class="btn btn-primary">+ Add Product</button>
         </a>
-        |
-        <a href="{{ route('product.edit',$p->id) }}">Edit</a>
-    </td>
-</tr>
-@endforeach
-</table>
+    </div>
+
+    {{-- Product listing table --}}
+    <table class="table clean-table">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Pin</th>
+                <th>Name</th>
+                <th>Details</th>
+                <th>Category</th>
+                <th>Price</th>
+                <th>Image</th>
+                <th class="text-right">Action</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            {{-- Loop through products --}}
+            @forelse($products as $product)
+            <tr>
+                <td>{{ $loop->iteration }}</td>
+
+                {{-- Pin / Unpin button --}}
+                <td>
+                    @if($product->is_pinned)
+                        <span style="color:green;font-weight:bold;">📌 Pinned</span>
+                        <br>
+                        <a href="{{ route('product.pin', $product->id) }}">
+                            <small>Unpin</small>
+                        </a>
+                    @else
+                        <a href="{{ route('product.pin', $product->id) }}">
+                            <button class="btn btn-light btn-sm">📌 Pin</button>
+                        </a>
+                    @endif
+                </td>
+
+                <td><strong>{{ $product->name }}</strong></td>
+
+                {{-- Short product description --}}
+                <td>{{ Str::limit($product->details, 50) }}</td>
+
+                {{-- Product category --}}
+                <td>{{ $product->category->name }}</td>
+
+                {{-- Product price --}}
+                <td>₹{{ number_format($product->price, 2) }}</td>
+
+                {{-- Product image --}}
+                <td>
+                    @if($product->image)
+                        <img src="{{ asset('products/'.$product->image) }}" class="table-img">
+                    @else
+                        —
+                    @endif
+                </td>
+
+                {{-- Edit and delete actions --}}
+                <td class="text-right">
+                    <a href="{{ route('product.edit', $product->id) }}">
+                        <button class="btn btn-light">Edit</button>
+                    </a>
+
+                    <a href="{{ route('product.delete', $product->id) }}"
+                       onclick="return confirm('Delete this product?')">
+                        <button class="btn btn-danger">Delete</button>
+                    </a>
+                </td>
+            </tr>
+
+            {{-- Empty state --}}
+            @empty
+            <tr>
+                <td colspan="8" class="empty-text">No products found</td>
+            </tr>
+            @endforelse
+        </tbody>
+    </table>
+
+</div>
 
 @endsection
+
 ```
 
 ---
@@ -288,17 +425,67 @@ Route::get('/', [ProductController::class,'frontendProducts'])->name('frontend.p
 
 @section('content')
 
-<form method="POST" action="{{ route('product.store') }}">
-@csrf
+<h2>Add Product</h2>
 
-<input type="text" name="name" placeholder="Product Name" required><br><br>
-<input type="text" name="price" placeholder="Price" required><br><br>
+{{-- Product creation form --}}
+<form method="POST" action="{{ route('product.store') }}" enctype="multipart/form-data">
+    @csrf
 
-<button>Add Product</button>
+    {{-- Product name --}}
+    <div class="form-group">
+        <label>Product Name</label>
+        <input type="text" name="name" required>
+    </div>
+
+    {{-- Product price --}}
+    <div class="form-group">
+        <label>Price</label>
+        <input type="number" name="price" required>
+    </div>
+
+    {{-- Product details --}}
+    <div class="form-group">
+        <label>Details</label>
+        <textarea name="details"></textarea>
+    </div>
+
+    {{-- Category selection --}}
+    <div class="form-group">
+        <label>Category</label>
+        <select name="category_id" required>
+            <option value="">Select Category</option>
+            @foreach($categories as $cat)
+                <option value="{{ $cat->id }}">{{ $cat->name }}</option>
+            @endforeach
+        </select>
+    </div>
+
+    {{-- Image upload with preview --}}
+    <div class="form-group">
+        <label>Product Image</label>
+
+        <div class="image-preview-wrapper">
+            <input type="file" name="image"
+                   onchange="previewImage(this, 'createPreview')">
+
+            <div class="preview-box" id="createPreview">
+                <span class="preview-text">No Image</span>
+            </div>
+        </div>
+    </div>
+
+    {{-- Form actions --}}
+    <div class="form-actions">
+        <button class="btn btn-primary">Save Product</button>
+        <a href="{{ route('product.index') }}">
+            <button type="button" class="btn btn-secondary">Back</button>
+        </a>
+    </div>
 
 </form>
 
 @endsection
+
 ```
 
 ---
@@ -310,19 +497,88 @@ Route::get('/', [ProductController::class,'frontendProducts'])->name('frontend.p
 
 @section('content')
 
-<h3>Edit Product</h3>
+<h2>Edit Product</h2>
 
-<form method="POST" action="{{ route('product.update',$product->id) }}">
-@csrf
+{{-- Product update form --}}
+<form method="POST" action="{{ route('product.update', $product->id) }}" enctype="multipart/form-data">
+    @csrf
 
-<input type="text" name="name" value="{{ $product->name }}" required><br><br>
-<input type="text" name="price" value="{{ $product->price }}" required><br><br>
+    {{-- Product name --}}
+    <div class="form-group">
+        <label>Product Name</label>
+        <input type="text" name="name" value="{{ $product->name }}" required>
+    </div>
 
-<button>Update Product</button>
+    {{-- Product price --}}
+    <div class="form-group">
+        <label>Price</label>
+        <input type="number" name="price" value="{{ $product->price }}" required>
+    </div>
+
+    {{-- Product details --}}
+    <div class="form-group">
+        <label>Details</label>
+        <textarea name="details">{{ $product->details }}</textarea>
+    </div>
+
+    {{-- Category selection --}}
+    <div class="form-group">
+        <label>Category</label>
+        <select name="category_id" required>
+            @foreach($categories as $cat)
+                <option value="{{ $cat->id }}"
+                    @if($product->category_id == $cat->id) selected @endif>
+                    {{ $cat->name }}
+                </option>
+            @endforeach
+        </select>
+    </div>
+
+    {{-- Image preview (old + new) --}}
+    <div class="form-group">
+        <label>Product Image</label>
+
+        <div class="image-preview-wrapper">
+
+            {{-- Current image --}}
+            <div>
+                <small>Current Image</small>
+                <div class="preview-box">
+                    @if($product->image)
+                        <img src="{{ asset('products/'.$product->image) }}">
+                    @else
+                        <span class="preview-text">No Image</span>
+                    @endif
+                </div>
+            </div>
+
+            {{-- New image preview --}}
+            <div>
+                <small>New Image</small>
+                <div class="preview-box" id="newImagePreview">
+                    <span class="preview-text">Select Image</span>
+                </div>
+            </div>
+        </div>
+
+        <br>
+
+        <input type="file" name="image"
+               onchange="previewImage(this, 'newImagePreview')">
+    </div>
+
+    {{-- Form actions --}}
+    <div class="form-actions">
+        <button class="btn btn-primary">Update Product</button>
+        <a href="{{ route('product.index') }}">
+            <button type="button" class="btn btn-secondary">Back</button>
+        </a>
+    </div>
 
 </form>
 
 @endsection
+
 ```
 
 ---
@@ -334,18 +590,73 @@ Route::get('/', [ProductController::class,'frontendProducts'])->name('frontend.p
 
 @section('content')
 
-<h3>Frontend Product List</h3>
+<h2>Our Products</h2>
 
-@foreach($products as $p)
-    <p>
-        {{ $p->name }} - ₹{{ $p->price }}
-        @if($p->is_pinned)
-            ⭐ <strong>Pinned</strong>
+{{-- Frontend product grid --}}
+<div class="frontend-grid">
+
+@foreach($products as $product)
+    <div class="product-card modern" style="position: relative;">
+
+        {{-- PINNED BADGE --}}
+        @if($product->is_pinned)
+            <span style="
+                position:absolute;
+                top:12px;
+                left:12px;
+                background:#facc15;
+                color:#000;
+                padding:5px 10px;
+                font-size:12px;
+                font-weight:700;
+                border-radius:6px;
+                box-shadow:0 2px 6px rgba(0,0,0,.2);
+                z-index:10;
+            ">
+                📌 PINNED
+            </span>
         @endif
-    </p>
+
+        {{-- Product image --}}
+        <div class="image-wrap">
+            @if($product->image)
+                <img src="{{ asset('products/'.$product->image) }}">
+            @else
+                <div class="no-image">No Image</div>
+            @endif
+        </div>
+
+        {{-- Product info --}}
+        <div class="card-body">
+            <h4 class="product-title">{{ $product->name }}</h4>
+
+            <p class="category">{{ $product->category->name }}</p>
+
+            <p class="details">
+                {{ \Illuminate\Support\Str::limit($product->details, 70) }}
+            </p>
+
+            {{-- Price and detail button --}}
+            <div class="card-footer">
+                <span class="price">
+                    ₹{{ number_format($product->price,2) }}
+                </span>
+
+                <a href="{{ route('frontend.product.detail', $product->id) }}">
+                    <button class="btn btn-primary btn-sm">
+                        View Details
+                    </button>
+                </a>
+            </div>
+        </div>
+
+    </div>
 @endforeach
 
+</div>
+
 @endsection
+
 ```
 
 ---
