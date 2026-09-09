@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Carbon\Carbon;
 
 class Product extends Model
 {
@@ -12,12 +13,46 @@ class Product extends Model
         'details',
         'image',
         'category_id',
-        'is_pinned'
+        'is_pinned',
+        'pin_priority',
+        'pin_start_at',
+        'pin_end_at',
     ];
 
+    protected $casts = [
+        'is_pinned' => 'boolean',
+        'pin_priority' => 'integer',
+        'pin_start_at' => 'datetime',
+        'pin_end_at' => 'datetime',
+    ];
 
+    /**
+     * Product belongs to category.
+     */
     public function category()
     {
         return $this->belongsTo(Category::class);
+    }
+
+    /**
+     * Check whether scheduled pinning is currently active.
+     */
+    public function isPinCurrentlyActive()
+    {
+        if (!$this->is_pinned) {
+            return false;
+        }
+
+        $now = Carbon::now();
+
+        if ($this->pin_start_at && $now->lt($this->pin_start_at)) {
+            return false;
+        }
+
+        if ($this->pin_end_at && $now->gt($this->pin_end_at)) {
+            return false;
+        }
+
+        return true;
     }
 }
