@@ -13,28 +13,255 @@ class ProductController extends Controller
     /**
      * Show admin product list.
      *
-     * Active pinned products appear first,
-     * followed by inactive/normal products.
+     * New functionalities:
+     * 1. Search
+     * 2. Category filter
+     * 3. Pin status filter
+     * 4. Price range filter
+     * 5. Sorting
+     * 6. Pagination
      */
-    public function index()
+    public function index(Request $request)
     {
         $now = Carbon::now();
 
-        $products = Product::with('category')
-            ->orderByRaw("
-                CASE
-                    WHEN is_pinned = 1
-                    AND (pin_start_at IS NULL OR pin_start_at <= ?)
-                    AND (pin_end_at IS NULL OR pin_end_at >= ?)
-                    THEN 0
-                    ELSE 1
-                END
-            ", [$now, $now])
-            ->orderBy('pin_priority', 'ASC')
-            ->orderBy('id', 'ASC')
-            ->get();
+        /*
+        |--------------------------------------------------------------------------
+        | Search
+        |--------------------------------------------------------------------------
+        */
 
-        return view('product.index', compact('products'));
+        $search = $request->input('search');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Category Filter
+        |--------------------------------------------------------------------------
+        */
+
+        $categoryId = $request->input('category_id');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Pin Status Filter
+        |--------------------------------------------------------------------------
+        */
+
+        $pinStatus = $request->input('pin_status', 'all');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Price Filters
+        |--------------------------------------------------------------------------
+        */
+
+        $minPrice = $request->input('min_price');
+
+        $maxPrice = $request->input('max_price');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Sorting
+        |--------------------------------------------------------------------------
+        */
+
+        $allowedSorts = [
+            'id',
+            'name',
+            'price',
+            'pin_priority',
+            'created_at',
+        ];
+
+        $sort = $request->input('sort', 'id');
+
+        if (!in_array($sort, $allowedSorts)) {
+            $sort = 'id';
+        }
+
+        $direction = strtolower($request->input('direction', 'asc'));
+
+        if (!in_array($direction, ['asc', 'desc'])) {
+            $direction = 'asc';
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Product Query
+        |--------------------------------------------------------------------------
+        */
+
+        $query = Product::with('category');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Search
+        |--------------------------------------------------------------------------
+        */
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', '%' . $search . '%')
+                    ->orWhere('details', 'like', '%' . $search . '%');
+            });
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Category Filter
+        |--------------------------------------------------------------------------
+        */
+
+        if ($categoryId) {
+            $query->where('category_id', $categoryId);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Pin Status Filter
+        |--------------------------------------------------------------------------
+        */
+
+        if ($pinStatus === 'active') {
+            $query->where('is_pinned', 1)
+                ->where(function ($q) use ($now) {
+                    $q->whereNull('pin_start_at')
+                        ->orWhere('pin_start_at', '<=', $now);
+                })
+                ->where(function ($q) use ($now) {
+                    $q->whereNull('pin_end_at')
+                        ->orWhere('pin_end_at', '>=', $now);
+                });
+        }
+
+        if ($pinStatus === 'scheduled') {
+            $query->where('is_pinned', 1)
+                ->whereNotNull('pin_start_at')
+                ->where('pin_start_at', '>', $now);
+        }
+
+        if ($pinStatus === 'expired') {
+            $query->where('is_pinned', 1)
+                ->whereNotNull('pin_end_at')
+                ->where('pin_end_at', '<', $now);
+        }
+
+        if ($pinStatus === 'unpinned') {
+            $query->where('is_pinned', 0);
+        }
+
+        if ($pinStatus === 'pinned') {
+            $query->where('is_pinned', 1);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Minimum Price
+        |--------------------------------------------------------------------------
+        */
+
+        if ($minPrice !== null && $minPrice !== '') {
+            $query->where('price', '>=', $minPrice);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Maximum Price
+        |--------------------------------------------------------------------------
+        */
+
+        if ($maxPrice !== null && $maxPrice !== '') {
+            $query->where('price', '<=', $maxPrice);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Active Pinned Products Always First
+        |--------------------------------------------------------------------------
+        */
+
+        $query->orderByRaw("
+            CASE
+                WHEN is_pinned = 1
+                AND (pin_start_at IS NULL OR pin_start_at <= ?)
+                AND (pin_end_at IS NULL OR pin_end_at >= ?)
+                THEN 0
+                ELSE 1
+            END
+        ", [$now, $now]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Pin Priority
+        |--------------------------------------------------------------------------
+        */
+
+        $query->orderBy('pin_priority', 'ASC');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Selected Sorting
+        |--------------------------------------------------------------------------
+        */
+
+        $query->orderBy($sort, $direction);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Pagination
+        |--------------------------------------------------------------------------
+        */
+
+        $products = $query
+            ->paginate(5)
+            ->withQueryString();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Categories
+        |--------------------------------------------------------------------------
+        */
+
+        $categories = Category::orderBy('name', 'ASC')->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Statistics
+        |--------------------------------------------------------------------------
+        */
+
+        $totalProducts = Product::count();
+
+        $totalPinned = Product::where('is_pinned', 1)->count();
+
+        $totalUnpinned = Product::where('is_pinned', 0)->count();
+
+        $activePinned = Product::where('is_pinned', 1)
+            ->where(function ($q) use ($now) {
+                $q->whereNull('pin_start_at')
+                    ->orWhere('pin_start_at', '<=', $now);
+            })
+            ->where(function ($q) use ($now) {
+                $q->whereNull('pin_end_at')
+                    ->orWhere('pin_end_at', '>=', $now);
+            })
+            ->count();
+
+        return view('product.index', compact(
+            'products',
+            'categories',
+            'search',
+            'categoryId',
+            'pinStatus',
+            'minPrice',
+            'maxPrice',
+            'sort',
+            'direction',
+            'totalProducts',
+            'totalPinned',
+            'totalUnpinned',
+            'activePinned'
+        ));
     }
 
     /**
@@ -72,11 +299,13 @@ class ProductController extends Controller
 
         $imageName = null;
 
-        /**
-         * Upload image.
-         */
-        if ($request->hasFile('image')) {
+        /*
+        |--------------------------------------------------------------------------
+        | Upload Image
+        |--------------------------------------------------------------------------
+        */
 
+        if ($request->hasFile('image')) {
             $imageName = time() . '_' . uniqid() . '.' .
                 $request->image->extension();
 
@@ -86,9 +315,12 @@ class ProductController extends Controller
             );
         }
 
-        /**
-         * Create product.
-         */
+        /*
+        |--------------------------------------------------------------------------
+        | Create Product
+        |--------------------------------------------------------------------------
+        */
+
         Product::create([
             'name' => $request->name,
 
@@ -162,11 +394,13 @@ class ProductController extends Controller
 
         $imageName = $product->image;
 
-        /**
-         * Replace product image.
-         */
-        if ($request->hasFile('image')) {
+        /*
+        |--------------------------------------------------------------------------
+        | Replace Image
+        |--------------------------------------------------------------------------
+        */
 
+        if ($request->hasFile('image')) {
             if (
                 $product->image &&
                 File::exists(
@@ -221,15 +455,18 @@ class ProductController extends Controller
     }
 
     /**
-     * Delete product.
+     * Delete single product.
      */
     public function delete($id)
     {
         $product = Product::findOrFail($id);
 
-        /**
-         * Delete image from public/products.
-         */
+        /*
+        |--------------------------------------------------------------------------
+        | Delete Image
+        |--------------------------------------------------------------------------
+        */
+
         if (
             $product->image &&
             File::exists(
@@ -256,10 +493,6 @@ class ProductController extends Controller
         $product = Product::findOrFail($id);
 
         if ($product->is_pinned) {
-
-            /**
-             * Unpin product.
-             */
             $product->update([
                 'is_pinned' => 0,
                 'pin_priority' => 0,
@@ -269,10 +502,6 @@ class ProductController extends Controller
 
             $message = 'Product unpinned successfully.';
         } else {
-
-            /**
-             * Pin product.
-             */
             $product->update([
                 'is_pinned' => 1,
                 'pin_priority' => $product->pin_priority ?: 1,
@@ -287,9 +516,314 @@ class ProductController extends Controller
     }
 
     /**
-     * Frontend product listing.
+     * Bulk pin / unpin / delete.
      *
-     * Only currently active pinned products appear first.
+     * Functionality 7 and 8.
+     */
+    public function bulkAction(Request $request)
+    {
+        $request->validate([
+            'ids' => 'required|array|min:1',
+
+            'ids.*' => 'integer|exists:products,id',
+
+            'action' => 'required|in:pin,unpin,delete',
+        ]);
+
+        $products = Product::whereIn('id', $request->ids)->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Bulk Pin
+        |--------------------------------------------------------------------------
+        */
+
+        if ($request->action === 'pin') {
+            foreach ($products as $product) {
+                $product->update([
+                    'is_pinned' => 1,
+                    'pin_priority' => $product->pin_priority ?: 1,
+                ]);
+            }
+
+            return redirect()
+                ->back()
+                ->with(
+                    'success',
+                    $products->count() . ' product(s) pinned successfully.'
+                );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Bulk Unpin
+        |--------------------------------------------------------------------------
+        */
+
+        if ($request->action === 'unpin') {
+            foreach ($products as $product) {
+                $product->update([
+                    'is_pinned' => 0,
+                    'pin_priority' => 0,
+                    'pin_start_at' => null,
+                    'pin_end_at' => null,
+                ]);
+            }
+
+            return redirect()
+                ->back()
+                ->with(
+                    'success',
+                    $products->count() . ' product(s) unpinned successfully.'
+                );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Bulk Delete
+        |--------------------------------------------------------------------------
+        */
+
+        if ($request->action === 'delete') {
+            foreach ($products as $product) {
+                if (
+                    $product->image &&
+                    File::exists(
+                        public_path('products/' . $product->image)
+                    )
+                ) {
+                    File::delete(
+                        public_path('products/' . $product->image)
+                    );
+                }
+
+                $product->delete();
+            }
+
+            return redirect()
+                ->back()
+                ->with(
+                    'success',
+                    $products->count() . ' product(s) deleted successfully.'
+                );
+        }
+
+        return redirect()->back();
+    }
+
+    /**
+     * Export products to CSV.
+     *
+     * Functionality 9.
+     */
+    public function exportCsv(Request $request)
+    {
+        $now = Carbon::now();
+
+        $search = $request->input('search');
+
+        $categoryId = $request->input('category_id');
+
+        $pinStatus = $request->input('pin_status', 'all');
+
+        $minPrice = $request->input('min_price');
+
+        $maxPrice = $request->input('max_price');
+
+        $allowedSorts = [
+            'id',
+            'name',
+            'price',
+            'pin_priority',
+            'created_at',
+        ];
+
+        $sort = $request->input('sort', 'id');
+
+        if (!in_array($sort, $allowedSorts)) {
+            $sort = 'id';
+        }
+
+        $direction = strtolower($request->input('direction', 'asc'));
+
+        if (!in_array($direction, ['asc', 'desc'])) {
+            $direction = 'asc';
+        }
+
+        $query = Product::with('category');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Search
+        |--------------------------------------------------------------------------
+        */
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', '%' . $search . '%')
+                    ->orWhere('details', 'like', '%' . $search . '%');
+            });
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Category
+        |--------------------------------------------------------------------------
+        */
+
+        if ($categoryId) {
+            $query->where('category_id', $categoryId);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Pin Status
+        |--------------------------------------------------------------------------
+        */
+
+        if ($pinStatus === 'active') {
+            $query->where('is_pinned', 1)
+                ->where(function ($q) use ($now) {
+                    $q->whereNull('pin_start_at')
+                        ->orWhere('pin_start_at', '<=', $now);
+                })
+                ->where(function ($q) use ($now) {
+                    $q->whereNull('pin_end_at')
+                        ->orWhere('pin_end_at', '>=', $now);
+                });
+        }
+
+        if ($pinStatus === 'scheduled') {
+            $query->where('is_pinned', 1)
+                ->whereNotNull('pin_start_at')
+                ->where('pin_start_at', '>', $now);
+        }
+
+        if ($pinStatus === 'expired') {
+            $query->where('is_pinned', 1)
+                ->whereNotNull('pin_end_at')
+                ->where('pin_end_at', '<', $now);
+        }
+
+        if ($pinStatus === 'unpinned') {
+            $query->where('is_pinned', 0);
+        }
+
+        if ($pinStatus === 'pinned') {
+            $query->where('is_pinned', 1);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Price Range
+        |--------------------------------------------------------------------------
+        */
+
+        if ($minPrice !== null && $minPrice !== '') {
+            $query->where('price', '>=', $minPrice);
+        }
+
+        if ($maxPrice !== null && $maxPrice !== '') {
+            $query->where('price', '<=', $maxPrice);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Ordering
+        |--------------------------------------------------------------------------
+        */
+
+        $query->orderByRaw("
+            CASE
+                WHEN is_pinned = 1
+                AND (pin_start_at IS NULL OR pin_start_at <= ?)
+                AND (pin_end_at IS NULL OR pin_end_at >= ?)
+                THEN 0
+                ELSE 1
+            END
+        ", [$now, $now]);
+
+        $query->orderBy('pin_priority', 'ASC');
+
+        $query->orderBy($sort, $direction);
+
+        $products = $query->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | CSV Download
+        |--------------------------------------------------------------------------
+        */
+
+        $fileName = 'products_' . now()->format('Y-m-d_H-i-s') . '.csv';
+
+        return response()->streamDownload(function () use ($products) {
+            $handle = fopen('php://output', 'w');
+
+            fputcsv($handle, [
+                'ID',
+                'Name',
+                'Category',
+                'Price',
+                'Details',
+                'Pin Status',
+                'Priority',
+                'Pin Start',
+                'Pin End',
+                'Created At',
+            ]);
+
+            foreach ($products as $product) {
+                $status = 'Unpinned';
+
+                if ($product->isPinCurrentlyActive()) {
+                    $status = 'Active';
+                } elseif (
+                    $product->is_pinned &&
+                    $product->pin_start_at &&
+                    $product->pin_start_at->gt(now())
+                ) {
+                    $status = 'Scheduled';
+                } elseif (
+                    $product->is_pinned &&
+                    $product->pin_end_at &&
+                    $product->pin_end_at->lt(now())
+                ) {
+                    $status = 'Expired';
+                } elseif ($product->is_pinned) {
+                    $status = 'Pinned';
+                }
+
+                fputcsv($handle, [
+                    $product->id,
+                    $product->name,
+                    $product->category
+                        ? $product->category->name
+                        : '',
+                    $product->price,
+                    $product->details,
+                    $status,
+                    $product->pin_priority,
+                    $product->pin_start_at
+                        ? $product->pin_start_at->format('Y-m-d H:i:s')
+                        : '',
+                    $product->pin_end_at
+                        ? $product->pin_end_at->format('Y-m-d H:i:s')
+                        : '',
+                    $product->created_at
+                        ? $product->created_at->format('Y-m-d H:i:s')
+                        : '',
+                ]);
+            }
+
+            fclose($handle);
+        }, $fileName, [
+            'Content-Type' => 'text/csv',
+        ]);
+    }
+
+    /**
+     * Frontend product listing.
      */
     public function frontendProducts()
     {
@@ -352,9 +886,6 @@ class ProductController extends Controller
             0
         )->count();
 
-        /**
-         * Currently active pinned products.
-         */
         $activePinned = Product::where('is_pinned', 1)
             ->where(function ($query) use ($now) {
                 $query->whereNull('pin_start_at')
@@ -366,37 +897,53 @@ class ProductController extends Controller
             })
             ->count();
 
-        /**
-         * Scheduled products.
-         */
         $scheduledPinned = Product::where('is_pinned', 1)
             ->whereNotNull('pin_start_at')
             ->where('pin_start_at', '>', $now)
             ->count();
 
-        /**
-         * Expired pinned products.
-         */
         $expiredPinned = Product::where('is_pinned', 1)
             ->whereNotNull('pin_end_at')
             ->where('pin_end_at', '<', $now)
             ->count();
 
-        /**
-         * Pin percentage.
-         */
         $pinPercentage = $totalProducts > 0
             ? round(($totalPinned / $totalProducts) * 100, 2)
             : 0;
 
-        /**
-         * Top priority products.
-         */
         $topPinnedProducts = Product::with('category')
             ->where('is_pinned', 1)
             ->orderBy('pin_priority', 'ASC')
+            ->orderBy('id', 'ASC')
             ->limit(5)
             ->get();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Extra Statistics
+        |--------------------------------------------------------------------------
+        */
+
+        $averagePrice = Product::avg('price');
+
+        $highestPrice = Product::max('price');
+
+        $lowestPrice = Product::min('price');
+
+        $totalProductValue = Product::sum('price');
+
+        $productsAddedToday = Product::whereDate(
+            'created_at',
+            today()
+        )->count();
+
+        $productsAddedThisWeek = Product::whereBetween(
+            'created_at',
+            [
+                now()->startOfWeek(),
+                now()->endOfWeek(),
+            ]
+        )->count();
 
         return view(
             'product.statistics',
@@ -408,7 +955,13 @@ class ProductController extends Controller
                 'scheduledPinned',
                 'expiredPinned',
                 'pinPercentage',
-                'topPinnedProducts'
+                'topPinnedProducts',
+                'averagePrice',
+                'highestPrice',
+                'lowestPrice',
+                'totalProductValue',
+                'productsAddedToday',
+                'productsAddedThisWeek'
             )
         );
     }

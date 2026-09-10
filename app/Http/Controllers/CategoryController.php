@@ -8,66 +8,117 @@ use Illuminate\Support\Str;
 
 class CategoryController extends Controller
 {
-    // Show category list
+    /**
+     * Show category list.
+     */
     public function index()
     {
-        // Fetch all categories (latest first)
-        $categories = Category::latest()->get();
+        $categories = Category::withCount('products')
+            ->orderBy('name', 'ASC')
+            ->get();
 
-        return view('categories.index', compact('categories'));
+        return view(
+            'categories.index',
+            compact('categories')
+        );
     }
 
-    // Show add category form
+    /**
+     * Show add category form.
+     */
     public function create()
     {
         return view('categories.create');
     }
 
-    // Store new category
+    /**
+     * Store new category.
+     */
     public function store(Request $request)
     {
-        // Validate category name
-        $request->validate(['name' => 'required']);
+        $request->validate([
+            'name' => 'required|string|max:255|unique:categories,name',
+        ]);
 
-        // Save category to database
         Category::create([
             'name' => $request->name,
-            'slug' => Str::slug($request->name)
+            'slug' => Str::slug($request->name),
         ]);
 
-        return redirect()->route('categories.index');
+        return redirect()
+            ->route('categories.index')
+            ->with(
+                'success',
+                'Category created successfully.'
+            );
     }
 
-    // Show edit category form
+    /**
+     * Show edit category form.
+     */
     public function edit($id)
     {
-        // Get category by id
         $category = Category::findOrFail($id);
 
-        return view('categories.edit', compact('category'));
+        return view(
+            'categories.edit',
+            compact('category')
+        );
     }
 
-    // Update category
+    /**
+     * Update category.
+     */
     public function update(Request $request, $id)
     {
-        // Get category by id
         $category = Category::findOrFail($id);
 
-        // Update category data
-        $category->update([
-            'name' => $request->name,
-            'slug' => Str::slug($request->name)
+        $request->validate([
+            'name' => 'required|string|max:255|unique:categories,name,' . $id,
         ]);
 
-        return redirect()->route('categories.index');
+        $category->update([
+            'name' => $request->name,
+            'slug' => Str::slug($request->name),
+        ]);
+
+        return redirect()
+            ->route('categories.index')
+            ->with(
+                'success',
+                'Category updated successfully.'
+            );
     }
 
-    // Delete category
+    /**
+     * Delete category.
+     */
     public function delete($id)
     {
-        // Remove category by id
-        Category::findOrFail($id)->delete();
+        $category = Category::findOrFail($id);
 
-        return redirect()->back();
+        /*
+        |--------------------------------------------------------------------------
+        | Prevent deleting category with products
+        |--------------------------------------------------------------------------
+        */
+
+        if ($category->products()->exists()) {
+            return redirect()
+                ->back()
+                ->with(
+                    'error',
+                    'This category cannot be deleted because products are assigned to it.'
+                );
+        }
+
+        $category->delete();
+
+        return redirect()
+            ->back()
+            ->with(
+                'success',
+                'Category deleted successfully.'
+            );
     }
 }
