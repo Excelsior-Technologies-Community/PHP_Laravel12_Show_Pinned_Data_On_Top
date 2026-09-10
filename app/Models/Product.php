@@ -22,6 +22,7 @@ class Product extends Model
     protected $casts = [
         'is_pinned' => 'boolean',
         'pin_priority' => 'integer',
+        'price' => 'decimal:2',
         'pin_start_at' => 'datetime',
         'pin_end_at' => 'datetime',
     ];
@@ -45,14 +46,52 @@ class Product extends Model
 
         $now = Carbon::now();
 
-        if ($this->pin_start_at && $now->lt($this->pin_start_at)) {
+        if (
+            $this->pin_start_at &&
+            $now->lt($this->pin_start_at)
+        ) {
             return false;
         }
 
-        if ($this->pin_end_at && $now->gt($this->pin_end_at)) {
+        if (
+            $this->pin_end_at &&
+            $now->gt($this->pin_end_at)
+        ) {
             return false;
         }
 
         return true;
+    }
+
+    /**
+     * Get readable pin status.
+     */
+    public function getPinStatusAttribute()
+    {
+        if ($this->isPinCurrentlyActive()) {
+            return 'Active';
+        }
+
+        if (
+            $this->is_pinned &&
+            $this->pin_start_at &&
+            $this->pin_start_at->gt(now())
+        ) {
+            return 'Scheduled';
+        }
+
+        if (
+            $this->is_pinned &&
+            $this->pin_end_at &&
+            $this->pin_end_at->lt(now())
+        ) {
+            return 'Expired';
+        }
+
+        if ($this->is_pinned) {
+            return 'Pinned';
+        }
+
+        return 'Unpinned';
     }
 }
