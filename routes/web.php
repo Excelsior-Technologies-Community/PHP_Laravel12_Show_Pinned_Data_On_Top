@@ -73,6 +73,26 @@ Route::get('/product/pin/{id}', [ProductController::class, 'pin'])
 
 /*
 |--------------------------------------------------------------------------
+| Bulk Product Actions
+|--------------------------------------------------------------------------
+*/
+
+Route::post('/product/bulk-action', [ProductController::class, 'bulkAction'])
+    ->name('product.bulk-action');
+
+
+/*
+|--------------------------------------------------------------------------
+| Product CSV Export
+|--------------------------------------------------------------------------
+*/
+
+Route::get('/product/export-csv', [ProductController::class, 'exportCsv'])
+    ->name('product.export-csv');
+
+
+/*
+|--------------------------------------------------------------------------
 | Pin Statistics
 |--------------------------------------------------------------------------
 */
