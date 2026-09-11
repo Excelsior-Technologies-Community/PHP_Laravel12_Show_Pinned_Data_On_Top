@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\ShopController;
 
 
 /*
@@ -36,11 +37,27 @@ Route::get('/categories/delete/{id}', [CategoryController::class, 'delete'])
 |--------------------------------------------------------------------------
 */
 
-Route::get('/', [ProductController::class, 'frontendProducts'])
+Route::get('/', [ShopController::class, 'products'])
     ->name('frontend.products');
 
-Route::get('/product-detail/{id}', [ProductController::class, 'show'])
+Route::get('/product-detail/{id}', [ShopController::class, 'show'])
     ->name('frontend.product.detail');
+
+Route::get('/shop', [ShopController::class, 'products'])->name('shop.products');
+Route::post('/wishlist/{id}/toggle', [ShopController::class, 'toggleWishlist'])->name('wishlist.toggle');
+Route::get('/wishlist', [ShopController::class, 'wishlist'])->name('wishlist.index');
+Route::post('/compare/{id}/toggle', [ShopController::class, 'toggleCompare'])->name('compare.toggle');
+Route::get('/compare', [ShopController::class, 'compare'])->name('compare.index');
+Route::post('/cart/{id}', [ShopController::class, 'addToCart'])->name('cart.add');
+Route::get('/cart', [ShopController::class, 'cart'])->name('cart.index');
+Route::delete('/cart/{id}', [ShopController::class, 'removeFromCart'])->name('cart.remove');
+Route::get('/checkout', [ShopController::class, 'checkout'])->name('checkout');
+Route::post('/checkout', [ShopController::class, 'placeOrder'])->name('checkout.place');
+Route::get('/orders', [ShopController::class, 'orders'])->name('orders.index');
+Route::post('/product-detail/{id}/review', [ShopController::class, 'review'])->name('review.store');
+Route::view('/contact', 'frontend.static', ['title' => 'Contact Us', 'content' => '<p>Email: support@example.com</p><p>Phone: +91 00000 00000</p>'])->name('contact');
+Route::view('/about', 'frontend.static', ['title' => 'About Us', 'content' => '<p>Welcome to our product catalogue.</p>'])->name('about');
+Route::view('/faq', 'frontend.static', ['title' => 'FAQ', 'content' => '<h3>How do I order?</h3><p>Add a product to cart and complete checkout.</p><h3>What payment methods are available?</h3><p>Cash on Delivery is currently available.</p>'])->name('faq');
 
 
 /*
@@ -89,6 +106,10 @@ Route::post('/product/bulk-action', [ProductController::class, 'bulkAction'])
 
 Route::get('/product/export-csv', [ProductController::class, 'exportCsv'])
     ->name('product.export-csv');
+Route::post('/product/import-csv', [ProductController::class, 'importCsv'])
+    ->name('product.import-csv');
+Route::post('/product/reorder-pins', [ProductController::class, 'reorderPins'])
+    ->name('product.reorder-pins');
 
 
 /*

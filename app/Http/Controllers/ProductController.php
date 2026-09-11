@@ -284,6 +284,16 @@ class ProductController extends Controller
 
             'price' => 'required|numeric|min:0',
 
+            'original_price' => 'nullable|numeric|min:0',
+            'discount_price' => 'nullable|numeric|min:0|lte:original_price',
+            'label' => 'nullable|in:New,Sale,Popular',
+            'brand' => 'nullable|string|max:255',
+            'tags' => 'nullable|string|max:1000',
+            'specifications' => 'nullable|json',
+            'video_url' => 'nullable|url|max:255',
+            'stock' => 'required|integer|min:0',
+            'low_stock_threshold' => 'required|integer|min:0',
+
             'details' => 'nullable|string',
 
             'category_id' => 'required|exists:categories,id',
@@ -325,6 +335,16 @@ class ProductController extends Controller
             'name' => $request->name,
 
             'price' => $request->price,
+
+            'original_price' => $request->original_price ?: $request->price,
+            'discount_price' => $request->discount_price,
+            'label' => $request->label,
+            'brand' => $request->brand,
+            'tags' => $request->tags ? array_values(array_filter(array_map('trim', explode(',', $request->tags)))) : null,
+            'specifications' => $request->specifications ? json_decode($request->specifications, true) : null,
+            'video_url' => $request->video_url,
+            'stock' => $request->stock,
+            'low_stock_threshold' => $request->low_stock_threshold,
 
             'details' => $request->details,
 
@@ -379,6 +399,16 @@ class ProductController extends Controller
 
             'price' => 'required|numeric|min:0',
 
+            'original_price' => 'nullable|numeric|min:0',
+            'discount_price' => 'nullable|numeric|min:0|lte:original_price',
+            'label' => 'nullable|in:New,Sale,Popular',
+            'brand' => 'nullable|string|max:255',
+            'tags' => 'nullable|string|max:1000',
+            'specifications' => 'nullable|json',
+            'video_url' => 'nullable|url|max:255',
+            'stock' => 'required|integer|min:0',
+            'low_stock_threshold' => 'required|integer|min:0',
+
             'details' => 'nullable|string',
 
             'category_id' => 'required|exists:categories,id',
@@ -427,6 +457,16 @@ class ProductController extends Controller
             'name' => $request->name,
 
             'price' => $request->price,
+
+            'original_price' => $request->original_price ?: $request->price,
+            'discount_price' => $request->discount_price,
+            'label' => $request->label,
+            'brand' => $request->brand,
+            'tags' => $request->tags ? array_values(array_filter(array_map('trim', explode(',', $request->tags)))) : null,
+            'specifications' => $request->specifications ? json_decode($request->specifications, true) : null,
+            'video_url' => $request->video_url,
+            'stock' => $request->stock,
+            'low_stock_threshold' => $request->low_stock_threshold,
 
             'details' => $request->details,
 
@@ -502,6 +542,10 @@ class ProductController extends Controller
 
             $message = 'Product unpinned successfully.';
         } else {
+            if (Product::where('is_pinned', 1)->count() >= 5) {
+                return redirect()->back()->with('error', 'Maximum 5 pinned products are allowed.');
+            }
+
             $product->update([
                 'is_pinned' => 1,
                 'pin_priority' => $product->pin_priority ?: 1,
@@ -509,6 +553,14 @@ class ProductController extends Controller
 
             $message = 'Product pinned successfully.';
         }
+
+        \DB::table('pin_logs')->insert([
+            'product_id' => $product->id,
+            'user_id' => auth()->id(),
+            'action' => $product->is_pinned ? 'pinned' : 'unpinned',
+            'priority' => $product->pin_priority,
+            'created_at' => now(),
+        ]);
 
         return redirect()
             ->back()
@@ -820,6 +872,47 @@ class ProductController extends Controller
         }, $fileName, [
             'Content-Type' => 'text/csv',
         ]);
+    }
+
+    public function importCsv(Request $request)
+    {
+        $request->validate(['file' => 'required|file|mimes:csv,txt|max:5120']);
+        $handle = fopen($request->file('file')->getRealPath(), 'r');
+        $headers = array_map('trim', fgetcsv($handle));
+        $count = 0;
+
+        while (($row = fgetcsv($handle)) !== false) {
+            if (count($row) !== count($headers)) {
+                continue;
+            }
+            $record = array_combine($headers, $row);
+            if (empty($record['name']) || empty($record['category_id'])) {
+                continue;
+            }
+            Product::updateOrCreate(
+                ['name' => $record['name']],
+                [
+                    'price' => (float) ($record['price'] ?? 0),
+                    'details' => $record['details'] ?? null,
+                    'category_id' => (int) $record['category_id'],
+                    'stock' => (int) ($record['stock'] ?? 0),
+                    'label' => $record['label'] ?? null,
+                    'brand' => $record['brand'] ?? null,
+                ]
+            );
+            $count++;
+        }
+        fclose($handle);
+        return back()->with('success', $count . ' product(s) imported successfully.');
+    }
+
+    public function reorderPins(Request $request)
+    {
+        $data = $request->validate(['ids' => 'required|array', 'ids.*' => 'integer|exists:products,id']);
+        foreach ($data['ids'] as $priority => $id) {
+            Product::whereKey($id)->where('is_pinned', 1)->update(['pin_priority' => $priority + 1]);
+        }
+        return response()->json(['message' => 'Pin priority updated.']);
     }
 
     /**
