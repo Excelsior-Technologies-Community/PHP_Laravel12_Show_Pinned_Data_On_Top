@@ -56,6 +56,16 @@
 
         </div>
 
+        <div class="form-group"><label>Original Price</label><input type="number" name="original_price" value="{{ old('original_price') }}" min="0" step="0.01"></div>
+        <div class="form-group"><label>Discount Price</label><input type="number" name="discount_price" value="{{ old('discount_price') }}" min="0" step="0.01"></div>
+        <div class="form-group"><label>Label</label><select name="label"><option value="">None</option><option>New</option><option>Sale</option><option>Popular</option></select></div>
+        <div class="form-group"><label>Brand</label><input name="brand" value="{{ old('brand') }}"></div>
+        <div class="form-group"><label>Tags (comma separated)</label><input name="tags" value="{{ old('tags') }}"></div>
+        <div class="form-group"><label>Specifications (JSON)</label><textarea name="specifications" placeholder='{"Material":"Cotton","Size":"Large"}'>{{ old('specifications') }}</textarea></div>
+        <div class="form-group"><label>Product Video URL</label><input type="url" name="video_url" value="{{ old('video_url') }}"></div>
+        <div class="form-group"><label>Stock</label><input type="number" name="stock" value="{{ old('stock', 0) }}" min="0"></div>
+        <div class="form-group"><label>Low Stock Warning At</label><input type="number" name="low_stock_threshold" value="{{ old('low_stock_threshold', 5) }}" min="0"></div>
+
 
         {{-- Price --}}
         <div class="form-group">

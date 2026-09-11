@@ -64,6 +64,16 @@
 
         </div>
 
+        <div class="form-group"><label>Original Price</label><input type="number" name="original_price" value="{{ old('original_price', $product->original_price) }}" min="0" step="0.01"></div>
+        <div class="form-group"><label>Discount Price</label><input type="number" name="discount_price" value="{{ old('discount_price', $product->discount_price) }}" min="0" step="0.01"></div>
+        <div class="form-group"><label>Label</label><select name="label"><option value="">None</option>@foreach(['New','Sale','Popular'] as $label)<option value="{{ $label }}" @selected(old('label', $product->label) === $label)>{{ $label }}</option>@endforeach</select></div>
+        <div class="form-group"><label>Brand</label><input name="brand" value="{{ old('brand', $product->brand) }}"></div>
+        <div class="form-group"><label>Tags (comma separated)</label><input name="tags" value="{{ old('tags', is_array($product->tags) ? implode(', ', $product->tags) : '') }}"></div>
+        <div class="form-group"><label>Specifications (JSON)</label><textarea name="specifications">{{ old('specifications', $product->specifications ? json_encode($product->specifications) : '') }}</textarea></div>
+        <div class="form-group"><label>Product Video URL</label><input type="url" name="video_url" value="{{ old('video_url', $product->video_url) }}"></div>
+        <div class="form-group"><label>Stock</label><input type="number" name="stock" value="{{ old('stock', $product->stock) }}" min="0"></div>
+        <div class="form-group"><label>Low Stock Warning At</label><input type="number" name="low_stock_threshold" value="{{ old('low_stock_threshold', $product->low_stock_threshold) }}" min="0"></div>
+
 
         {{-- Price --}}
         <div class="form-group">
